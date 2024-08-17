@@ -66,7 +66,7 @@ def compute_jacobian(q, out):
   out[2][7] = -(q[4] - q[7])
   out[2][8] = -(q[5] - q[8])
 
-O_pos,H1_pos,H2_pos = create_water_molecule([simulation_size/2 for i in range(3)], np.array([1,0,0]), np.array([0,1,1]))
+O_pos,H1_pos,H2_pos = create_water_molecule([simulation_size/2 for i in range(3)], np.array([1,0,0]), np.array([0,1,0]))
 atom_type = np.array([1, 0, 0])
 position = np.concatenate((O_pos, H1_pos, H2_pos))
 last_position = np.copy(position)
@@ -75,7 +75,7 @@ mass_vector = np.array([O_mass]*3+[H_mass]*6)
 mass_matrix = np.diag(mass_vector)
 inverse_mass_matrix = np.linalg.inv(mass_matrix)
 force = np.zeros(position.shape)
-force[0] = 1
+force[3] = 1
 implied_velocity = np.zeros(position.shape)
 jacobian = np.zeros((3,9))
 jacobian_derivative = np.zeros((3,9))
@@ -90,12 +90,14 @@ for t in range(1, num_steps+1):
   rhs_vector = np.matmul(jacobian_derivative, implied_velocity) + np.matmul(jacobian, np.matmul(inverse_mass_matrix, force))
   constraint_parameters = np.matmul(np.linalg.inv(constraint_matrix), rhs_vector)
   constraint_force = np.matmul(np.transpose(constraint_parameters), jacobian)
-  force += constraint_force
+  # TODO: light restoring force on constraints to account for numerical inaccruacy
 
   # verlet step
-  new_position = 2 * position - last_position + step_size**2 * force / mass_vector
+  new_position = 2 * position - last_position + step_size**2 * (force+constraint_force) / mass_vector
+  tmp = last_position
   last_position = position
   position = new_position
-  new_position = np.zeros(position.shape)
+  new_position = tmp
   if t % 1000 == 0:
+    print(constraint_force, file=sys.stderr)
     dump_timestep(t, atom_type, np.reshape(position, (3,3)), [simulation_size for i in range(3)])
