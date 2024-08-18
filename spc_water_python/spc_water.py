@@ -76,12 +76,17 @@ def compute_constraint_forces(pos, last_pos, force):
 
 lennard_jones_sigma = 0.316557 # nm
 lennard_jones_epsilon = 0.650194 * 1e6 # kJ/mol * 1e6 = u(nm)^2/(ns)^2 (this is my base energy unit)
+coulomb_constant = 1.38910e8 # converted into my units
 
 # pass positions of oxyten, return force on O1.
 def lennard_jones_force(O1_pos, O2_pos):
   r = np.linalg.norm(O2_pos - O1_pos)
   n = 24 * lennard_jones_epsilon * (math.pow(lennard_jones_sigma/r, 6) - math.pow(lennard_jones_sigma/r, 12)) / r
-  return (O2_pos - O1_pos)*n/r
+  return (O2_pos - O1_pos) * n / r
+def coulomb_force(P1_pos, P2_pos, P1_charge, P2_charge):
+  r = np.linalg.norm(P2_pos - P1_pos)
+  n = - coulomb_constant * P1_charge * P2_charge / math.pow(r, 2)
+  return (P2_pos - P1_pos) * n / r
 
 simname = sys.stdin.readline()
 print(f"Reading {simname}", file=sys.stderr)
@@ -106,15 +111,28 @@ last_position = np.copy(position)
 new_position = np.zeros(position.shape)
 mass_vector = np.array(read_mass)
 
+HW_charge = 0.410 # |e| units
+OW_charge = -2 * HW_charge
+
 dump_timestep(0, atom_type, np.reshape(position, (-1,3)), [simulation_size for i in range(3)])
 for t in range(1, num_steps+1):
   force = np.zeros(position.shape)
-  van_der_waals_force = lennard_jones_force(position[0:3], position[9:12])
-  force [0:3] = van_der_waals_force
-  force [9:12] = -van_der_waals_force
+  for O1 in range(0, len(position), 9):
+    for O2 in range(O1+9, len(position), 9):
+      for P1,C1 in zip(range(O1, O1+9, 3), (OW_charge, HW_charge, HW_charge)):
+        for P2,C2 in zip(range(O2, O2+9, 3), (OW_charge, HW_charge, HW_charge)):
+          f = coulomb_force(position[P1:P1+3], position[P2:P2+3], C1, C2)
+          force[P1:P1+3] += f
+          force[P2:P2+3] -= f
+  for O1 in range(0, len(position), 9):
+    for O2 in range(O1+9, len(position), 9):
+      f = lennard_jones_force(position[O1:O1+3], position[O2:O2+3])
+      force[O1:O1+3] += f
+      force[O2:O2+3] -= f
   # constraint forces
   for m in range(0, len(position), 9):
     force[m:m+9] += compute_constraint_forces(position[m:m+9], last_position[m:m+9], force[m:m+9])
+  #print(np.reshape(force, (-1,3)), file=sys.stderr)
   # TODO: light restoring force on constraints to account for numerical inaccruacy
 
   # verlet step
