@@ -1,5 +1,5 @@
 import numpy as np
-import sys
+import sys, math
 
 def dump_timestep(timestep, atom_type, atom_position, bounding_box):
   print("ITEM: TIMESTEP")
@@ -22,10 +22,10 @@ O_mass = 8
 H_mass = 1
 
 simulation_size = 2
-simulation_duration = 5
+simulation_duration = 5e-3
 
-# step_size = 5e-7 # realistic size
-step_size = 1e-4
+step_size = 5e-7 # realistic size
+#step_size = 1e-4
 num_steps = int(simulation_duration/step_size)
 
 def compute_jacobian(q, out):
@@ -74,6 +74,15 @@ def compute_constraint_forces(pos, last_pos, force):
   constraint_force = np.matmul(np.transpose(constraint_parameters), jacobian)
   return constraint_force
 
+lennard_jones_sigma = 0.316557 # nm
+lennard_jones_epsilon = 0.650194 * 1e6 # kJ/mol * 1e6 = u(nm)^2/(ns)^2 (this is my base energy unit)
+
+# pass positions of oxyten, return force on O1.
+def lennard_jones_force(O1_pos, O2_pos):
+  r = np.linalg.norm(O2_pos - O1_pos)
+  n = 24 * lennard_jones_epsilon * (math.pow(lennard_jones_sigma/r, 6) - math.pow(lennard_jones_sigma/r, 12)) / r
+  return (O2_pos - O1_pos)*n/r
+
 simname = sys.stdin.readline()
 print(f"Reading {simname}", file=sys.stderr)
 natoms = int(sys.stdin.readline())
@@ -100,8 +109,9 @@ mass_vector = np.array(read_mass)
 dump_timestep(0, atom_type, np.reshape(position, (-1,3)), [simulation_size for i in range(3)])
 for t in range(1, num_steps+1):
   force = np.zeros(position.shape)
-  force[3] = 1
-  force[9] = 1
+  van_der_waals_force = lennard_jones_force(position[0:3], position[9:12])
+  force [0:3] = van_der_waals_force
+  force [9:12] = -van_der_waals_force
   # constraint forces
   for m in range(0, len(position), 9):
     force[m:m+9] += compute_constraint_forces(position[m:m+9], last_position[m:m+9], force[m:m+9])
@@ -113,5 +123,5 @@ for t in range(1, num_steps+1):
   last_position = position
   position = new_position
   new_position = tmp
-  if t % 1000 == 0:
+  if t % 100 == 0:
     dump_timestep(t, atom_type, np.reshape(position, (-1,3)), [simulation_size for i in range(3)])

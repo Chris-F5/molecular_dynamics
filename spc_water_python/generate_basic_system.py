@@ -14,7 +14,7 @@ def create_water_molecule(O_pos, charge_orientation, normal):
 
 mols = []
 mols.append(create_water_molecule([1, 1, 1], np.array([1,0,0]), np.array([0,1,0])))
-mols.append(create_water_molecule([1, 1.5, 1], np.array([1,0,0]), np.array([0,1,0])))
+mols.append(create_water_molecule([1.5, 1, 1], np.array([-1,0,0]), np.array([0,1,0])))
 
 print("SAMPLESYSTEM")
 print(f"{len(mols)*3}")
