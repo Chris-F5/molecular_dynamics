@@ -1,5 +1,6 @@
 import numpy as np
 import sys, math
+import progressbar
 
 def dump_timestep(timestep, atom_type, atom_position, bounding_box):
   print("ITEM: TIMESTEP")
@@ -115,20 +116,49 @@ HW_charge = 0.410 # |e| units
 OW_charge = -2 * HW_charge
 
 dump_timestep(0, atom_type, np.reshape(position, (-1,3)), [simulation_size for i in range(3)])
-for t in range(1, num_steps+1):
+for t in progressbar.progressbar(range(1, num_steps+1)):
+  # Force, accounting for 8 mirrors. (lol, this is only a prototype I promise!)
   force = np.zeros(position.shape)
   for O1 in range(0, len(position), 9):
-    for O2 in range(O1+9, len(position), 9):
-      for P1,C1 in zip(range(O1, O1+9, 3), (OW_charge, HW_charge, HW_charge)):
-        for P2,C2 in zip(range(O2, O2+9, 3), (OW_charge, HW_charge, HW_charge)):
-          f = coulomb_force(position[P1:P1+3], position[P2:P2+3], C1, C2)
-          force[P1:P1+3] += f
-          force[P2:P2+3] -= f
-  for O1 in range(0, len(position), 9):
-    for O2 in range(O1+9, len(position), 9):
-      f = lennard_jones_force(position[O1:O1+3], position[O2:O2+3])
-      force[O1:O1+3] += f
-      force[O2:O2+3] -= f
+    for O2 in range(0, len(position), 9):
+      if O1 == O2: continue
+      for mx in [-1,0,1]:
+        for my in [-1,0,1]:
+          for mz in [-1,0,1]:
+            force[O1:O1+3] += lennard_jones_force(position[O1:O1+3], position[O2:O2+3] + np.array([mx,my,mz])*simulation_size)
+            for P1,C1 in zip(range(O1, O1+9, 3), (OW_charge, HW_charge, HW_charge)):
+              for P2,C2 in zip(range(O2, O2+9, 3), (OW_charge, HW_charge, HW_charge)):
+                P1_pos = position[P1:P1+3]
+                P2_pos = position[P2:P2+3] + np.array([mx,my,mz])*simulation_size
+                force[P1:P1+3] += coulomb_force(P1_pos, P2_pos, C1, C2)
+
+  # Periodic bc
+  for O in range(0, len(position), 9):
+    if position[O] < 0:
+      position[O] += simulation_size
+      position[O+3] += simulation_size
+      position[O+6] += simulation_size
+    if position[O-1] < 0:
+      position[O-1] += simulation_size
+      position[O-1+3] += simulation_size
+      position[O-1+6] += simulation_size
+    if position[O-2] < 0:
+      position[O-2] += simulation_size
+      position[O-2+3] += simulation_size
+      position[O-2+6] += simulation_size
+    if position[O] > simulation_size:
+      position[O] -= simulation_size
+      position[O+3] -= simulation_size
+      position[O+6] -= simulation_size
+    if position[O-1] > simulation_size:
+      position[O-1] -= simulation_size
+      position[O-1+3] -= simulation_size
+      position[O-1+6] -= simulation_size
+    if position[O-2] > simulation_size:
+      position[O-2] -= simulation_size
+      position[O-2+3] -= simulation_size
+      position[O-2+6] -= simulation_size
+
   # constraint forces
   for m in range(0, len(position), 9):
     force[m:m+9] += compute_constraint_forces(position[m:m+9], last_position[m:m+9], force[m:m+9])
@@ -141,5 +171,5 @@ for t in range(1, num_steps+1):
   last_position = position
   position = new_position
   new_position = tmp
-  if t % 100 == 0:
+  if t % 10 == 0:
     dump_timestep(t, atom_type, np.reshape(position, (-1,3)), [simulation_size for i in range(3)])
