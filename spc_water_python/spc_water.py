@@ -22,6 +22,9 @@ OW_charge = -2 * HW_charge
 simulation_size = 2
 simulation_duration = 5e-3
 dump_rate = 10
+force_cutoff = 1.0
+link_rate = 5
+max_frame_displacement = 0.02
 
 # Numerical Constants
 step_size = 5e-7
@@ -114,12 +117,8 @@ def update_links(radius):
             m = np.array([mx, my, mz])
             O2_pos = O_pos[j] + m * simulation_size
             r = np.linalg.norm(O1_pos - O2_pos)
-            if best_r == None or r < best_r:
-              best_r = r
-              best_m = m
-      O2_pos = O_pos[j] + best_m * simulation_size
-      if best_r <= radius:
-        links.append((i, j, best_m))
+            if r <= radius:
+              links.append((i, j, m))
 def enforce_periodic_bc():
   for i in range(nmol):
     for c in range(0,3):
@@ -219,7 +218,8 @@ update_links(10)
 print("Starting simulation...", file=sys.stderr)
 dump_timestep(0)
 for t in progressbar.progressbar(range(1, num_steps+1)):
-  update_links(10)
+  if t % link_rate == 0:
+    update_links(force_cutoff + 2*(link_rate * max_frame_displacement + OH_bond_length))
 
   # APPLIED FORCES
   force = np.zeros(pos.shape)
@@ -256,6 +256,7 @@ for t in progressbar.progressbar(range(1, num_steps+1)):
   new_pos = 2 * pos - last_pos + step_size**2 * force / mass
   last_pos = pos
   pos = new_pos
+  assert(all(np.linalg.norm(displacement) < max_frame_displacement for displacement in (last_pos - new_pos)))
   create_atom_views()
 
   enforce_periodic_bc()
