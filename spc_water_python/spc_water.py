@@ -19,22 +19,29 @@ HW_charge = 0.410
 OW_charge = -2 * HW_charge
 
 # Simulation Configuration
-simulation_size = 2
-simulation_duration = 2e-4
-dump_rate = 10
+simulation_size = 2.3
+simulation_duration = 1e-4
+integration = 'steepest descent'
+dump_rate = 1
 force_cutoff = 1.0
-link_rate = 5
-max_frame_displacement = 0.02
-
-# Numerical Constants
+link_rate = 10
+#max_frame_displacement = 0.05
+max_frame_displacement = 0.01
 step_size = 5e-7
+steepest_descent_delta = 0.005
 water_constraint_restore_displacement = 1e10
 water_constraint_restore_velocity = 1e10
+
+# Output Files
+trajectory_dump_fname = "trajectory.dump"
+stats_dump_fname = "stats.dump"
 
 # Derived Constants
 num_steps = int(simulation_duration/step_size)
 # Water Constraint Matrices
 water_inverse_mass_matrix = np.linalg.inv(np.diag([O_mass]*3 + [H_mass]*6))
+trajectory_dump_file = open(trajectory_dump_fname, 'w')
+stats_dump_file = open(stats_dump_fname, 'w')
 
 # SYSTEM STATE
 nmol = 0
@@ -69,7 +76,8 @@ def load_system_state(sys_file):
   mass = np.zeros((natom, 3))
   mass[:nmol] = O_mass
   mass[nmol:] = H_mass
-  charge = np.zeros((natom, 3))
+  #charge = np.zeros((natom, 3))
+  charge = np.zeros(nmol * 3)
   charge[:nmol] = OW_charge
   charge[nmol:] = HW_charge
   create_atom_views()
@@ -83,26 +91,43 @@ def load_system_state(sys_file):
     H1_pos[i] = np.array([float(c) for c in (H1_x, H1_y, H1_z)])
     H2_pos[i] = np.array([float(c) for c in (H2_x, H2_y, H2_z)])
   last_pos[:] = pos
-def dump_timestep(timestep):
+def compute_potential_energy():
+  potential = 0
+  for i,j,m in links:
+    potential += compute_lennard_jones_potential(pos[i], pos[j] + m * simulation_size)
+  for i,j,m in links:
+    for a in range(3):
+      for b in range(a+1,3):
+        potential += compute_coulomb_potential(pos[a*nmol+i], pos[b*nmol+j] + m * simulation_size, charge[a*nmol+i], charge[b*nmol+j])
+  return potential
+def dump_stats_timestep(timestep):
+  potential_energy = compute_potential_energy()
+  print(f"{timestep},{potential_energy}", file=stats_dump_file)
+  stats_dump_file.flush()
+def dump_trajectory_timestep(timestep):
   global pos, O_pos, H1_pos, H2_pos
-  print("ITEM: TIMESTEP")
-  print(timestep)
-  print("ITEM: NUMBER OF ATOMS")
-  print(nmol*3)
-  print("ITEM: BOX BOUNDS pp pp pp")
-  print(0, simulation_size)
-  print(0, simulation_size)
-  print(0, simulation_size)
-  print("ITEM: ATOMS id type x y z")
+  print("ITEM: TIMESTEP", file=trajectory_dump_file)
+  print(timestep, file=trajectory_dump_file)
+  print("ITEM: NUMBER OF ATOMS", file=trajectory_dump_file)
+  print(nmol*3, file=trajectory_dump_file)
+  print("ITEM: BOX BOUNDS pp pp pp", file=trajectory_dump_file)
+  print(0, simulation_size, file=trajectory_dump_file)
+  print(0, simulation_size, file=trajectory_dump_file)
+  print(0, simulation_size, file=trajectory_dump_file)
+  print("ITEM: ATOMS id type x y z", file=trajectory_dump_file)
   id = 0
   type = 1
   for p in O_pos:
-    print(id, type, p[0], p[1], p[2])
+    print(id, type, p[0], p[1], p[2], file=trajectory_dump_file)
     id += 1
   type = 0
   for p in itertools.chain(H1_pos, H2_pos):
-    print(id, type, p[0], p[1], p[2])
+    print(id, type, p[0], p[1], p[2], file=trajectory_dump_file)
     id += 1
+  trajectory_dump_file.flush()
+def dump_timestep(timestep):
+  dump_trajectory_timestep(timestep)
+  dump_stats_timestep(timestep)
 def update_links(radius):
   global links
   links = []
@@ -148,6 +173,13 @@ def compute_coulomb_force(P1_pos, P2_pos, P1_charge, P2_charge):
   r = np.linalg.norm(P2_pos - P1_pos)
   n = - coulomb_constant * P1_charge * P2_charge / math.pow(r, 2)
   return (P2_pos - P1_pos) * n / r
+
+def compute_lennard_jones_potential(O1_pos, O2_pos):
+  r = np.linalg.norm(O2_pos - O1_pos)
+  return 4 * lennard_jones_epsilon * (math.pow(lennard_jones_sigma/r, 12) - math.pow(lennard_jones_sigma/r, 6))
+def compute_coulomb_potential(P1_pos, P2_pos, P1_charge, P2_charge):
+  r = np.linalg.norm(P2_pos - P1_pos)
+  return coulomb_constant * P1_charge * P2_charge / r
 
 def compute_jacobian(O_pos, H1_pos, H2_pos):
   jacobian = np.empty((3, 9))
@@ -210,32 +242,32 @@ water_constraint_restore_velocity = 1e5
 
 # SETUP
 
+print("Initialising simulation...", file=sys.stderr)
 load_system_state(sys.stdin)
-update_links(10)
+update_links(force_cutoff + 2*(link_rate * max_frame_displacement + OH_bond_length))
 
 # TIME PROGRESSION
 
 print("Starting simulation...", file=sys.stderr)
 dump_timestep(0)
-for t in range(1, num_steps+1):
+for t in progressbar.progressbar(range(1, num_steps+1)):
   if t % link_rate == 0:
     update_links(force_cutoff + 2*(link_rate * max_frame_displacement + OH_bond_length))
 
   # APPLIED FORCES
-  print(f"Applying forces... ({len(links)} links)", file=sys.stderr)
   force = np.zeros(pos.shape)
-  for i,j,m in progressbar.progressbar(links):
+  for i,j,m in links:
     f = compute_lennard_jones_force(pos[i], pos[j] + m * simulation_size)
     force[i] += f
     force[j] -= f
-  for i,j,m in progressbar.progressbar(links):
+  for i,j,m in links:
     for a in range(3):
-      f = compute_coulomb_force(pos[a*nmol+i], pos[a*nmol+j] + m * simulation_size, charge[a*nmol+i], charge[a*nmol+j])
-      force[a*nmol+i] += f
-      force[a*nmol+j] -= f
+      for b in range(a+1,3):
+        f = compute_coulomb_force(pos[a*nmol+i], pos[b*nmol+j] + m * simulation_size, charge[a*nmol+i], charge[b*nmol+j])
+        force[a*nmol+i] += f
+        force[b*nmol+j] -= f
 
   # CONSTRAINT FORCES
-  print("Applying constraints...", file=sys.stderr)
   for i in range(nmol):
     O_force = force[i]
     H1_force = force[nmol+i]
@@ -256,10 +288,22 @@ for t in range(1, num_steps+1):
     force[nmol*2+i] += - H1_H2_restoring - O_H2_restoring
 
   # VERLET INTEGRATION
-  print("Running verlet...", file=sys.stderr)
-  new_pos = 2 * pos - last_pos + step_size**2 * force / mass
-  last_pos = pos
-  pos = new_pos
+  if integration == 'verlet':
+    new_pos = 2 * pos - last_pos + step_size**2 * force / mass
+    last_pos = pos
+    pos = new_pos
+  elif integration == 'steepest descent':
+    max_force = 0
+    for i in range(nmol*3):
+      max_force = max(max_force, np.linalg.norm(force[i]))
+    #new_pos = pos + steepest_descent_delta * force / max_force
+    new_pos = pos + steepest_descent_delta * (force / mass) / max_force
+    last_pos[:] = new_pos
+    pos = new_pos
+  else:
+    print(f"unknown integrator '{integration}'", file=sys.stderr)
+    exit(1)
+
   assert(all(np.linalg.norm(displacement) < max_frame_displacement for displacement in (last_pos - new_pos)))
   create_atom_views()
 
@@ -267,3 +311,8 @@ for t in range(1, num_steps+1):
 
   if t % dump_rate == 0:
     dump_timestep(t)
+
+# Cleanup
+
+trajectory_dump_file.close()
+stats_dump_file.close()
