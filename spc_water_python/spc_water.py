@@ -20,7 +20,7 @@ OW_charge = -2 * HW_charge
 
 # Simulation Configuration
 simulation_size = 2
-simulation_duration = 5e-3
+simulation_duration = 2e-4
 dump_rate = 10
 force_cutoff = 1.0
 link_rate = 5
@@ -217,22 +217,25 @@ update_links(10)
 
 print("Starting simulation...", file=sys.stderr)
 dump_timestep(0)
-for t in progressbar.progressbar(range(1, num_steps+1)):
+for t in range(1, num_steps+1):
   if t % link_rate == 0:
     update_links(force_cutoff + 2*(link_rate * max_frame_displacement + OH_bond_length))
 
   # APPLIED FORCES
+  print(f"Applying forces... ({len(links)} links)", file=sys.stderr)
   force = np.zeros(pos.shape)
-  for i,j,m in links:
+  for i,j,m in progressbar.progressbar(links):
     f = compute_lennard_jones_force(pos[i], pos[j] + m * simulation_size)
     force[i] += f
     force[j] -= f
-  for i,j,m in links:
-    f = compute_coulomb_force(pos[i], pos[j] + m * simulation_size, charge[i], charge[j])
-    force[i] += f
-    force[j] -= f
+  for i,j,m in progressbar.progressbar(links):
+    for a in range(3):
+      f = compute_coulomb_force(pos[a*nmol+i], pos[a*nmol+j] + m * simulation_size, charge[a*nmol+i], charge[a*nmol+j])
+      force[a*nmol+i] += f
+      force[a*nmol+j] -= f
 
   # CONSTRAINT FORCES
+  print("Applying constraints...", file=sys.stderr)
   for i in range(nmol):
     O_force = force[i]
     H1_force = force[nmol+i]
@@ -253,6 +256,7 @@ for t in progressbar.progressbar(range(1, num_steps+1)):
     force[nmol*2+i] += - H1_H2_restoring - O_H2_restoring
 
   # VERLET INTEGRATION
+  print("Running verlet...", file=sys.stderr)
   new_pos = 2 * pos - last_pos + step_size**2 * force / mass
   last_pos = pos
   pos = new_pos
