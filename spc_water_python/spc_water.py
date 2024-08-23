@@ -25,8 +25,8 @@ dump_rate = 10
 
 # Numerical Constants
 step_size = 5e-7
-# water_constraint_restore_displacement = 1e8
-# water_constraint_restore_velocity = 1e5
+water_constraint_restore_displacement = 1e10
+water_constraint_restore_velocity = 1e10
 
 # Derived Constants
 num_steps = int(simulation_duration/step_size)
@@ -197,6 +197,17 @@ def compute_water_constraint_force(O_force, H1_force, H2_force, O_pos, H1_pos, H
   constraint_force = np.matmul(np.transpose(constraint_parameters), J)
   constraint_force.resize(3, 3)
   return constraint_force
+def constraint_restoring_force(P1, P2, last_P1, last_P2, target_distance):
+  displacement = P2 - P1
+  distance = np.linalg.norm(displacement)
+  direction = displacement / distance
+  last_distance = np.linalg.norm(last_P2 - last_P1)
+
+  distance_velocity = (distance - last_distance) / step_size
+  return water_constraint_restore_displacement * (distance - target_distance) * direction \
+       + water_constraint_restore_velocity * distance_velocity * direction
+
+water_constraint_restore_velocity = 1e5
 
 # SETUP
 
@@ -234,6 +245,12 @@ for t in progressbar.progressbar(range(1, num_steps+1)):
     force[i] += O_fc
     force[nmol+i] += H1_fc
     force[nmol*2+i] += H2_fc
+    O_H1_restoring = constraint_restoring_force(O_pos[i], H1_pos[i], last_O_pos[i], last_H1_pos[i], OH_bond_length)
+    O_H2_restoring = constraint_restoring_force(O_pos[i], H2_pos[i], last_O_pos[i], last_H2_pos[i], OH_bond_length)
+    H1_H2_restoring = constraint_restoring_force(H1_pos[i], H2_pos[i], last_H1_pos[i], last_H2_pos[i], HH_bond_length)
+    force[i] += O_H1_restoring + O_H2_restoring
+    force[nmol+i] += H1_H2_restoring - O_H1_restoring
+    force[nmol*2+i] += - H1_H2_restoring - O_H2_restoring
 
   # VERLET INTEGRATION
   new_pos = 2 * pos - last_pos + step_size**2 * force / mass
