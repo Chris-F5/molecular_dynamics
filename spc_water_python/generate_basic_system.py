@@ -4,7 +4,7 @@ OH_bond_length = 0.1
 HH_bond_length = 0.16330
 
 def create_water_molecule(O_pos, charge_orientation, normal):
-  np.linalg.norm(charge_orientation)
+  charge_orientation = charge_orientation / np.linalg.norm(charge_orientation)
   HH_axis = np.cross(charge_orientation, normal)
   np.linalg.norm(HH_axis)
   adjacent = (OH_bond_length**2 - (HH_bond_length/2)**2)**(1/2)
@@ -14,7 +14,7 @@ def create_water_molecule(O_pos, charge_orientation, normal):
 
 mols = []
 mols.append(create_water_molecule([1.0, 1.0, 1.0], np.array([1.0,0.0,0.0]), np.array([0,1,0])))
-mols.append(create_water_molecule([1.2, 1.0, 1.0], np.array([1.0,0.0,0.0]), np.array([0,1,0])))
+mols.append(create_water_molecule([1.2, 1.0, 1.0], np.array([1.0,0.1,0.0]), np.array([0,1,0])))
 
 print("SAMPLESYSTEM")
 print(f" {len(mols)*3}")

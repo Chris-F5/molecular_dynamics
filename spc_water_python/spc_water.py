@@ -25,8 +25,8 @@ dump_rate = 10
 
 # Numerical Constants
 step_size = 5e-7
-water_constraint_restore_displacement = 0
-water_constraint_restore_velocity = 0
+# water_constraint_restore_displacement = 1e8
+# water_constraint_restore_velocity = 1e5
 
 # Derived Constants
 num_steps = int(simulation_duration/step_size)
@@ -45,6 +45,7 @@ last_H1_pos = None
 last_H2_pos = None
 mass = None
 charge = None
+links = None
 def create_atom_views():
   global O_pos, H1_pos, H2_pos, last_O_pos, last_H1_pos, last_H2_pos
   O_pos  = pos[nmol*0:nmol*1]
@@ -99,6 +100,43 @@ def dump_timestep(timestep):
   for p in itertools.chain(H1_pos, H2_pos):
     print(id, type, p[0], p[1], p[2])
     id += 1
+def update_links(radius):
+  global links
+  links = []
+  for i in range(nmol):
+    O1_pos = O_pos[i]
+    for j in range(i+1, nmol):
+      best_m = None
+      best_r = None
+      for mx in [-1,0,1]:
+        for my in [-1,0,1]:
+          for mz in [-1,0,1]:
+            m = np.array([mx, my, mz])
+            O2_pos = O_pos[j] + m * simulation_size
+            r = np.linalg.norm(O1_pos - O2_pos)
+            if best_r == None or r < best_r:
+              best_r = r
+              best_m = m
+      O2_pos = O_pos[j] + best_m * simulation_size
+      if best_r <= radius:
+        links.append((i, j, best_m))
+def enforce_periodic_bc():
+  for i in range(nmol):
+    for c in range(0,3):
+      if O_pos[i][c] < 0:
+        O_pos[i][c] += simulation_size
+        H1_pos[i][c] += simulation_size
+        H2_pos[i][c] += simulation_size
+        last_O_pos[i][c] += simulation_size
+        last_H1_pos[i][c] += simulation_size
+        last_H2_pos[i][c] += simulation_size
+      if O_pos[i][c] > simulation_size:
+        O_pos[i][c] -= simulation_size
+        H1_pos[i][c] -= simulation_size
+        H2_pos[i][c] -= simulation_size
+        last_O_pos[i][c] -= simulation_size
+        last_H1_pos[i][c] -= simulation_size
+        last_H2_pos[i][c] -= simulation_size
 
 # FORCES
 # Pairwise force functions return foce on first atom in parameters.
@@ -147,13 +185,14 @@ def compute_water_constraint_force(O_force, H1_force, H2_force, O_pos, H1_pos, H
   J = compute_jacobian(O_pos, H1_pos, H2_pos)
   Jd = compute_jacobian(O_vel, H1_vel, H2_vel)
   c = compute_constraint_function(O_pos, H1_pos, H2_pos)
-  cd = compute_constraint_derivative(J, O_pos, H1_pos, H2_pos, last_O_pos, last_H1_pos, last_H2_pos)
+  # cd = compute_constraint_derivative(J, O_pos, H1_pos, H2_pos, last_O_pos, last_H1_pos, last_H2_pos)
   W = water_inverse_mass_matrix
-  ks = water_constraint_restore_displacement
-  kd = water_constraint_restore_velocity
+  # ks = water_constraint_restore_displacement
+  # kd = water_constraint_restore_velocity
   JT = np.transpose(J)
   lhs_mat = np.matmul(J, np.matmul(W, JT))
-  rhs_vec = - np.matmul(J, np.matmul(W, fa)) - np.matmul(Jd, qd) - ks * cd - kd * cd
+  rhs_vec = - np.matmul(J, np.matmul(W, fa)) - np.matmul(Jd, qd) # - ks * c - kd * cd
+  #print(- ks * c - kd * cd, rhs_vec, file=sys.stderr)
   constraint_parameters = np.matmul(np.linalg.inv(lhs_mat), rhs_vec)
   constraint_force = np.matmul(np.transpose(constraint_parameters), J)
   constraint_force.resize(3, 3)
@@ -162,26 +201,26 @@ def compute_water_constraint_force(O_force, H1_force, H2_force, O_pos, H1_pos, H
 # SETUP
 
 load_system_state(sys.stdin)
+update_links(10)
 
 # TIME PROGRESSION
 
 print("Starting simulation...", file=sys.stderr)
 dump_timestep(0)
 for t in progressbar.progressbar(range(1, num_steps+1)):
-  # TODO: verlet lists
+  update_links(10)
+
   # APPLIED FORCES
-  # TODO: iterative only over verlet lists
   force = np.zeros(pos.shape)
-  for i in range(nmol):
-    for j in range(i+1, nmol):
-      f = compute_lennard_jones_force(pos[i], pos[j])
-      force[i] += f
-      force[j] -= f
-  for i in range(nmol*3):
-    for j in range(i+1, nmol*3):
-      f = compute_coulomb_force(pos[i], pos[j], charge[i], charge[j])
-      force[i] += f
-      force[j] -= f
+  for i,j,m in links:
+    f = compute_lennard_jones_force(pos[i], pos[j] + m * simulation_size)
+    force[i] += f
+    force[j] -= f
+  for i,j,m in links:
+    f = compute_coulomb_force(pos[i], pos[j] + m * simulation_size, charge[i], charge[j])
+    force[i] += f
+    force[j] -= f
+
   # CONSTRAINT FORCES
   for i in range(nmol):
     O_force = force[i]
@@ -195,11 +234,14 @@ for t in progressbar.progressbar(range(1, num_steps+1)):
     force[i] += O_fc
     force[nmol+i] += H1_fc
     force[nmol*2+i] += H2_fc
+
   # VERLET INTEGRATION
   new_pos = 2 * pos - last_pos + step_size**2 * force / mass
   last_pos = pos
   pos = new_pos
   create_atom_views()
-  # TOOD: periodic boundary conditions
+
+  enforce_periodic_bc()
+
   if t % dump_rate == 0:
     dump_timestep(t)
