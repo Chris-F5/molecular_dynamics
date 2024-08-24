@@ -25,10 +25,12 @@ integration = 'steepest descent'
 dump_rate = 1
 force_cutoff = 1.0
 link_rate = 10
-#max_frame_displacement = 0.05
-max_frame_displacement = 0.01
+max_frame_displacement = 0.05
+#max_frame_displacement = 0.02
 step_size = 5e-7
 steepest_descent_delta = 0.005
+steepest_descent_delta_early_end = 1e-16
+steepest_descent_steps = 200
 water_constraint_restore_displacement = 1e10
 water_constraint_restore_velocity = 1e10
 
@@ -56,6 +58,7 @@ last_H2_pos = None
 mass = None
 charge = None
 links = None
+force = None
 def create_atom_views():
   global O_pos, H1_pos, H2_pos, last_O_pos, last_H1_pos, last_H2_pos
   O_pos  = pos[nmol*0:nmol*1]
@@ -65,7 +68,7 @@ def create_atom_views():
   last_H1_pos = last_pos[nmol*1:nmol*2]
   last_H2_pos = last_pos[nmol*2:nmol*3]
 def load_system_state(sys_file):
-  global pos, last_pos, mass, charge, nmol
+  global pos, last_pos, mass, charge, nmol, force
   simname = sys.stdin.readline().strip()
   print(f"Reading {simname}...", file=sys.stderr)
   natom = int(sys_file.readline())
@@ -91,6 +94,7 @@ def load_system_state(sys_file):
     H1_pos[i] = np.array([float(c) for c in (H1_x, H1_y, H1_z)])
     H2_pos[i] = np.array([float(c) for c in (H2_x, H2_y, H2_z)])
   last_pos[:] = pos
+  force = np.zeros(pos.shape)
 def compute_potential_energy():
   potential = 0
   for i,j,m in links:
@@ -100,9 +104,13 @@ def compute_potential_energy():
       for b in range(a+1,3):
         potential += compute_coulomb_potential(pos[a*nmol+i], pos[b*nmol+j] + m * simulation_size, charge[a*nmol+i], charge[b*nmol+j])
   return potential
+print(f"timestep,potential_energy,max_force,steepest_descent_delta", file=stats_dump_file)
 def dump_stats_timestep(timestep):
   potential_energy = compute_potential_energy()
-  print(f"{timestep},{potential_energy}", file=stats_dump_file)
+  max_force = 0
+  for i in range(nmol*3):
+    max_force = max(max_force, np.linalg.norm(force[i]))
+  print(f"{timestep},{potential_energy},{max_force},{steepest_descent_delta}", file=stats_dump_file)
   stats_dump_file.flush()
 def dump_trajectory_timestep(timestep):
   global pos, O_pos, H1_pos, H2_pos
@@ -244,14 +252,20 @@ water_constraint_restore_velocity = 1e5
 
 print("Initialising simulation...", file=sys.stderr)
 load_system_state(sys.stdin)
+#enforce_periodic_bc()
 update_links(force_cutoff + 2*(link_rate * max_frame_displacement + OH_bond_length))
 
 # TIME PROGRESSION
 
 print("Starting simulation...", file=sys.stderr)
 dump_timestep(0)
-for t in progressbar.progressbar(range(1, num_steps+1)):
+t = 1
+done = False
+t_max = steepest_descent_steps if integration == 'steepest descent' else num_steps
+#for t in progressbar.progressbar(range(1, num_steps+1)):
+while not done:
   if t % link_rate == 0:
+    enforce_periodic_bc()
     update_links(force_cutoff + 2*(link_rate * max_frame_displacement + OH_bond_length))
 
   # APPLIED FORCES
@@ -287,30 +301,35 @@ for t in progressbar.progressbar(range(1, num_steps+1)):
     force[nmol+i] += H1_H2_restoring - O_H1_restoring
     force[nmol*2+i] += - H1_H2_restoring - O_H2_restoring
 
-  # VERLET INTEGRATION
-  if integration == 'verlet':
-    new_pos = 2 * pos - last_pos + step_size**2 * force / mass
-    last_pos = pos
-    pos = new_pos
-  elif integration == 'steepest descent':
-    max_force = 0
-    for i in range(nmol*3):
-      max_force = max(max_force, np.linalg.norm(force[i]))
-    #new_pos = pos + steepest_descent_delta * force / max_force
-    new_pos = pos + steepest_descent_delta * (force / mass) / max_force
-    last_pos[:] = new_pos
-    pos = new_pos
-  else:
-    print(f"unknown integrator '{integration}'", file=sys.stderr)
-    exit(1)
+  # STEEPEST DESCENT
 
-  assert(all(np.linalg.norm(displacement) < max_frame_displacement for displacement in (last_pos - new_pos)))
+  max_force = 0
+  for i in range(nmol*3):
+    max_force = max(max_force, np.linalg.norm(force[i]))
+  old_potential = compute_potential_energy()
+  #new_pos = pos + steepest_descent_delta * force / max_force
+  pos = pos + steepest_descent_delta * (force / mass) / max_force
+  new_potential = compute_potential_energy()
+  if new_potential <= old_potential:
+    last_pos[:] = pos
+  else:
+    pos[:] = last_pos
+
   create_atom_views()
 
-  enforce_periodic_bc()
+  print(f"op {old_potential:e} np {new_potential:e}")
+  if new_potential <= old_potential:
+    if t % dump_rate == 0:
+      dump_timestep(t)
+    steepest_descent_delta = min(steepest_descent_delta*1.2, max_frame_displacement)
+    t += 1
+    print(f"{t}/{steepest_descent_steps}")
+  else:
+    steepest_descent_delta *= 0.2
+    print(f"decreased delta to {steepest_descent_delta}")
 
-  if t % dump_rate == 0:
-    dump_timestep(t)
+  if t > steepest_descent_steps or steepest_descent_delta < steepest_descent_delta_early_end:
+    done = True
 
 # Cleanup
 
