@@ -6,7 +6,7 @@ import progressbar
 # Units: nm, ns, u, e
 
 # Physical Constants
-coulomb_constant = 1.38910e8 # non-trivial unit conversion
+coulomb_constant = 1.3894e8 # non-trivial unit conversion
 
 # Model Constants
 OH_bond_length = 0.1
@@ -101,7 +101,7 @@ def compute_potential_energy():
     potential += compute_lennard_jones_potential(pos[i], pos[j] + m * simulation_size)
   for i,j,m in links:
     for a in range(3):
-      for b in range(a+1,3):
+      for b in range(3):
         potential += compute_coulomb_potential(pos[a*nmol+i], pos[b*nmol+j] + m * simulation_size, charge[a*nmol+i], charge[b*nmol+j])
   return potential
 print(f"timestep,potential_energy,max_force,steepest_descent_delta", file=stats_dump_file)
@@ -252,7 +252,7 @@ water_constraint_restore_velocity = 1e5
 
 print("Initialising simulation...", file=sys.stderr)
 load_system_state(sys.stdin)
-#enforce_periodic_bc()
+enforce_periodic_bc()
 update_links(force_cutoff + 2*(link_rate * max_frame_displacement + OH_bond_length))
 
 # TIME PROGRESSION
@@ -276,7 +276,7 @@ while not done:
     force[j] -= f
   for i,j,m in links:
     for a in range(3):
-      for b in range(a+1,3):
+      for b in range(3):
         f = compute_coulomb_force(pos[a*nmol+i], pos[b*nmol+j] + m * simulation_size, charge[a*nmol+i], charge[b*nmol+j])
         force[a*nmol+i] += f
         force[b*nmol+j] -= f
