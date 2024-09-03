@@ -1,0 +1,96 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+
+#include "utils.h"
+#include "api.h"
+#include "model.h"
+
+#define ALLOCATED_INTERACTIONS 100
+
+double
+find_max_force(int particle_count, double (*p_force)[3])
+{
+  int i;
+  double max, force;
+  max = 0;
+  for (i = 0; i < particle_count; i++) {
+    force = magnitude(p_force[i]) ;
+    if (force > max)
+      max = force;
+  }
+  return max;
+}
+
+int
+main(int argc, char **argv)
+{
+  FILE *traj_out;
+  struct gro_structure gro;
+  int particle_count;
+  double (*p_pos)[3];
+  double (*p_force)[3];
+  int *p_type;
+  int water_mol_count;
+  int (*w_mol)[3];
+  int interaction_count;
+  int (*i_particles)[2];
+  unsigned char *i_image;
+  struct non_bonded_interaction_params const **i_params;
+  double size;
+
+  int t, p, ax;
+  double max_force;
+  double descent_delta;
+
+  load_gro_structure(stdin, &gro);
+  particle_count = gro.particle_count;
+  p_pos = xmalloc(particle_count * sizeof(p_pos[0]));
+  memcpy(p_pos, gro.p_pos, particle_count * sizeof(p_pos[0]));
+  p_type = xmalloc(particle_count * sizeof(p_type[0]));
+  memcpy(p_type, gro.p_type, particle_count * sizeof(p_type[0]));
+  water_mol_count = gro.water_mol_count;
+  w_mol = xmalloc(water_mol_count * sizeof(w_mol[0]));
+  memcpy(w_mol, gro.w_mol, water_mol_count * sizeof(w_mol[0]));
+  if (gro.dx != gro.dy || gro.dx != gro.dz) {
+    fprintf(stderr, "Simulation box must be cube.\n");
+    exit(1);
+  }
+  size = gro.dx;
+  free_gro_structure(&gro);
+
+  i_particles = xmalloc(ALLOCATED_INTERACTIONS * sizeof(i_particles[0]));
+  i_image = xmalloc(ALLOCATED_INTERACTIONS * sizeof(i_image[0]));
+  i_params = xmalloc(ALLOCATED_INTERACTIONS * sizeof(i_params[0]));
+  find_pair_list(particle_count, p_pos, p_type, ALLOCATED_INTERACTIONS,
+      &interaction_count, i_particles, i_image, i_params, size);
+
+  p_force = xmalloc(particle_count * sizeof(p_force[0]));
+  memset(p_force, 0, particle_count * sizeof(p_force[0]));
+  add_non_bonded_forces(p_pos, p_force, interaction_count, i_particles, i_image, i_params, size);
+
+  descent_delta = 0.01;
+
+  traj_out = fopen("out.traj", "w");
+  write_traj_timestep(traj_out, 0, particle_count, p_type, p_pos, size, size, size);
+  for (t = 0; t < 100; t++) {
+    max_force = find_max_force(particle_count, p_force);
+    if (max_force > 0) {
+      for (p = 0; p < particle_count; p++) for (ax = 0; ax < 3; ax++) {
+        p_pos[p][ax] = p_pos[p][ax] + descent_delta * p_force[p][ax] / max_force;
+      }
+    }
+
+    memset(p_force, 0, particle_count * sizeof(p_force[0]));
+    add_non_bonded_forces(p_pos, p_force, interaction_count, i_particles, i_image, i_params, size);
+
+    write_traj_timestep(traj_out, t, particle_count, p_type, p_pos, size, size, size);
+  }
+  fclose(traj_out);
+
+  free(p_pos);
+  free(p_type);
+  free(w_mol);
+  return 0;
+}
