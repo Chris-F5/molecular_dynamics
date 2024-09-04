@@ -63,10 +63,10 @@ load_gro_structure(FILE *gro_file, struct gro_structure *gro)
     gro->p_pos[p][2] = atof(line_buffer + rmatch[6].rm_so);
     gro->p_type[p] = p % 3 ? PARTICLE_HW : PARTICLE_OW;
 
-    if (i % 3 == 0) {
-      gro->w_mol[p/3][0] = i;
-      gro->w_mol[p/3][1] = i + 1;
-      gro->w_mol[p/3][2] = i + 2;
+    if (p % 3 == 0) {
+      gro->w_mol[p/3][0] = p;
+      gro->w_mol[p/3][1] = p + 1;
+      gro->w_mol[p/3][2] = p + 2;
     }
   }
 
