@@ -43,6 +43,7 @@ main(int argc, char **argv)
   int t, p, ax;
   double max_force;
   double descent_delta;
+  double mass;
 
   load_gro_structure(stdin, &gro);
   particle_count = gro.particle_count;
@@ -69,6 +70,7 @@ main(int argc, char **argv)
   p_force = xmalloc(particle_count * sizeof(p_force[0]));
   memset(p_force, 0, particle_count * sizeof(p_force[0]));
   add_non_bonded_forces(p_pos, p_force, interaction_count, i_particles, i_image, i_params, size);
+  add_bonded_forces(p_pos, p_pos, p_force, water_mol_count, w_mol, 1.0);
 
   descent_delta = 0.01;
 
@@ -78,12 +80,15 @@ main(int argc, char **argv)
     max_force = find_max_force(particle_count, p_force);
     if (max_force > 0) {
       for (p = 0; p < particle_count; p++) for (ax = 0; ax < 3; ax++) {
-        p_pos[p][ax] = p_pos[p][ax] + descent_delta * p_force[p][ax] / max_force;
+        mass = particles_params[p_type[p]].mass;
+        p_pos[p][ax] = p_pos[p][ax] + descent_delta * (p_force[p][ax] / mass) / max_force;
       }
     }
 
     memset(p_force, 0, particle_count * sizeof(p_force[0]));
-    add_non_bonded_forces(p_pos, p_force, interaction_count, i_particles, i_image, i_params, size);
+    //add_non_bonded_forces(p_pos, p_force, interaction_count, i_particles, i_image, i_params, size);
+    p_force[0][0] = -1.0;
+    add_bonded_forces(p_pos, p_pos, p_force, water_mol_count, w_mol, 1.0);
 
     write_traj_timestep(traj_out, t, particle_count, p_type, p_pos, size, size, size);
   }

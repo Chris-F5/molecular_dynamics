@@ -32,7 +32,7 @@ void add_non_bonded_forces(
     double size);
 void add_bonded_forces(
     const double (*p_pos)[3], const double (*p_last_pos)[3], double (*p_force)[3],
-    int water_mol_count, const int (*w_mol)[3]);
+    int water_mol_count, const int (*w_mol)[3], double timestep);
 void compute_potential(
     int particle_count, const double (*p_pos)[3], const int *p_type,
     int interaction_count, const int (*i_particles)[2], const unsigned char (*i_image),

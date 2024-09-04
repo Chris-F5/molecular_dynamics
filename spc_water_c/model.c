@@ -19,8 +19,75 @@ const double coulomb_constant = 138.94;
 const double non_bonded_cutoff_distance = 1.0;
 
 static void
-add_spc_constraint(const double pos[3][3], const double last_pos[3][3], double force[3][3])
+compute_jacobian(double jacobian[3][9], const double pos[3][3])
 {
+  displacement(&jacobian[0][0], pos[0], pos[1]);
+  displacement(&jacobian[0][3], pos[1], pos[0]);
+  jacobian[0][6] = jacobian[0][7] = jacobian[0][8] = 0.0;
+
+  displacement(&jacobian[1][0], pos[0], pos[2]);
+  jacobian[1][3] = jacobian[1][4] = jacobian[1][5] = 0.0;
+  displacement(&jacobian[1][6], pos[2], pos[0]);
+
+  jacobian[2][0] = jacobian[2][1] = jacobian[2][2] = 0.0;
+  displacement(&jacobian[2][3], pos[1], pos[2]);
+  displacement(&jacobian[2][6], pos[2], pos[1]);
+}
+
+static void
+invert_3x3_matrix(double inv[3][3], const double mat[3][3])
+{
+  double minors[3][3], det;
+  int i, j;
+  minors[0][0] = mat[1][1] * mat[2][2] - mat[2][1] * mat[1][2];
+  minors[0][1] = mat[1][0] * mat[2][2] - mat[2][0] * mat[1][2];
+  minors[0][2] = mat[1][0] * mat[2][1] - mat[2][0] * mat[1][1];
+  minors[1][0] = mat[0][1] * mat[2][2] - mat[2][1] * mat[0][2];
+  minors[1][1] = mat[0][0] * mat[2][2] - mat[2][0] * mat[0][2];
+  minors[1][2] = mat[0][0] * mat[2][1] - mat[2][0] * mat[0][1];
+  minors[2][0] = mat[0][1] * mat[1][2] - mat[1][1] * mat[0][2];
+  minors[2][1] = mat[0][0] * mat[1][2] - mat[1][0] * mat[0][2];
+  minors[2][2] = mat[0][0] * mat[1][1] - mat[1][0] * mat[0][1];
+  det = mat[0][0] * minors[0][0] + mat[0][1] * minors[0][1] + mat[0][2] * minors[0][2];
+  for (i = 0; i < 3; i++) for (j = 0; j < 3; j++)
+    inv[i][j] = (det == 0 ? 0 : 1/det) * ((i+j)%2 ? -1 : 1) * minors[j][i];
+}
+
+static void
+add_spc_constraint(const double pos[3][3], const double last_pos[3][3], double force[3][3], double timestep)
+{
+  double vel[3][3], mass;
+  double jacobian[3][9], jacobian_derivative[3][9];
+  double lhs_matrix[3][3], lhs_inv[3][3];
+  double rhs_vector[3], legrangian_multipliers[3];
+  int i, j, k;
+  for (i = 0; i < 3; i++) for (j = 0; j < 3; j++)
+    vel[i][j] = (last_pos[i][j] - pos[i][j]) / timestep;
+  compute_jacobian(jacobian, pos);
+  compute_jacobian(jacobian_derivative, vel);
+  for (i = 0; i < 3; i++) for (j = 0; j < 3; j++) {
+    lhs_matrix[i][j] = 0.0;
+    for (k = 0; k < 9; k++) {
+      mass = particles_params[k/3 ? PARTICLE_OW : PARTICLE_HW].mass;
+      lhs_matrix[i][j] += jacobian[i][k] * mass * jacobian[j][k];
+    }
+  }
+  invert_3x3_matrix(lhs_inv, lhs_matrix);
+  for (i = 0; i < 3; i++) {
+    rhs_vector[i] = 0;
+    for (j = 0; j < 9; j++) {
+      mass = particles_params[j/3 ? PARTICLE_OW : PARTICLE_HW].mass;
+      rhs_vector[i] -= jacobian_derivative[i][j] * vel[j/3][j%3] + jacobian[i][j] * mass * force[j/3][j%3];
+    }
+  }
+  for (i = 0; i < 3; i++) {
+    legrangian_multipliers[i] = 0;
+    for (j = 0; j < 3; j++)
+      legrangian_multipliers[i] += lhs_inv[i][j] * rhs_vector[j];
+  }
+  for (i = 0; i < 9; i++)
+    for (j = 0; j < 3; j++)
+      force[i/3][i%3] += legrangian_multipliers[j] * jacobian[j][i];
 }
 
 void
@@ -113,7 +180,7 @@ void add_non_bonded_forces(
 
 void add_bonded_forces(
     const double (*p_pos)[3], const double (*p_last_pos)[3], double (*p_force)[3],
-    int water_mol_count, const int (*w_mol)[3])
+    int water_mol_count, const int (*w_mol)[3], double timestep)
 {
   int m, atom, ax;
   double pos[3][3];
@@ -125,7 +192,7 @@ void add_bonded_forces(
       last_pos[atom][ax] = p_last_pos[w_mol[m][atom]][ax];
       force[atom][ax] = p_force[w_mol[m][atom]][ax];
     }
-    add_spc_constraint(pos, last_pos, force);
+    add_spc_constraint(pos, last_pos, force, timestep);
     for (atom = 0; atom < 3; atom++) for (ax = 0; ax < 3; ax++)
       p_force[w_mol[m][atom]][ax] = force[atom][ax];
   }
