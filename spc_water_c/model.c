@@ -108,7 +108,7 @@ enforce_periodic_boundary_conditions(
           p_last_pos[w_mol[m][1]][ax] -= size;
           p_last_pos[w_mol[m][2]][ax] -= size;
         }
-      } else if (p_pos[w_mol[m][0]][ax] < size) {
+      } else if (p_pos[w_mol[m][0]][ax] < 0) {
         p_pos[w_mol[m][0]][ax] += size;
         p_pos[w_mol[m][1]][ax] += size;
         p_pos[w_mol[m][2]][ax] += size;
@@ -152,6 +152,27 @@ void find_pair_list(
       }
     }
   }
+}
+
+double
+compute_potential(
+    const double (*p_pos)[3],
+    int interaction_count, const int (*i_particles)[2], const unsigned char (*i_image),
+    const struct non_bonded_interaction_params  *const *i_params,
+    double size)
+{
+  int i;
+  double d[3], r, lj_potential, coulomb_potential, total_potential;
+  total_potential = 0;
+  for (i = 0; i < interaction_count; i++) {
+    displacement(d, p_pos[i_particles[i][1]], p_pos[i_particles[i][0]]);
+    r = magnitude(d);
+    lj_potential = 4 * i_params[i]->lennard_jones_epsilon
+        * ( pow(i_params[i]->lennard_jones_sigma / r, 12) - pow(i_params[i]->lennard_jones_sigma / r, 6) );
+    coulomb_potential = coulomb_constant * i_params[i]->charge / r;
+    total_potential += lj_potential + coulomb_potential;
+  }
+  return total_potential;
 }
 
 void add_non_bonded_forces(

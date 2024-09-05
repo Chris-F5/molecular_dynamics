@@ -7,9 +7,9 @@
 #include "api.h"
 #include "model.h"
 
-#define ALLOCATED_INTERACTIONS 100
+#define ALLOCATED_INTERACTIONS 1000000
 
-double
+static double
 find_max_force(int particle_count, double (*p_force)[3])
 {
   int i;
@@ -26,7 +26,7 @@ find_max_force(int particle_count, double (*p_force)[3])
 int
 main(int argc, char **argv)
 {
-  FILE *traj_out;
+  FILE *traj_out, *stats_out;
   struct gro_structure gro;
   int particle_count;
   double (*p_pos)[3];
@@ -41,7 +41,7 @@ main(int argc, char **argv)
   double size;
 
   int t, p, ax;
-  double max_force;
+  double max_force, potential;
   double descent_delta;
   double mass;
 
@@ -64,6 +64,7 @@ main(int argc, char **argv)
   i_particles = xmalloc(ALLOCATED_INTERACTIONS * sizeof(i_particles[0]));
   i_image = xmalloc(ALLOCATED_INTERACTIONS * sizeof(i_image[0]));
   i_params = xmalloc(ALLOCATED_INTERACTIONS * sizeof(i_params[0]));
+  enforce_periodic_boundary_conditions(p_pos, NULL, water_mol_count, w_mol, size);
   find_pair_list(particle_count, p_pos, p_type, ALLOCATED_INTERACTIONS,
       &interaction_count, i_particles, i_image, i_params, size);
 
@@ -75,8 +76,16 @@ main(int argc, char **argv)
   descent_delta = 0.01;
 
   traj_out = fopen("out.traj", "w");
+  stats_out = fopen("out.stats", "w");
+  fprintf(stats_out, "timestep,potential,max_force\n");
   write_traj_timestep(traj_out, 0, particle_count, p_type, p_pos, size, size, size);
-  for (t = 0; t < 100; t++) {
+  for (t = 0; t < 800; t++) {
+    if (t % 10 == 0) {
+      enforce_periodic_boundary_conditions(p_pos, NULL, water_mol_count, w_mol, size);
+      find_pair_list(particle_count, p_pos, p_type, ALLOCATED_INTERACTIONS,
+          &interaction_count, i_particles, i_image, i_params, size);
+    }
+
     max_force = find_max_force(particle_count, p_force);
     if (max_force > 0) {
       for (p = 0; p < particle_count; p++) for (ax = 0; ax < 3; ax++) {
@@ -86,13 +95,17 @@ main(int argc, char **argv)
     }
 
     memset(p_force, 0, particle_count * sizeof(p_force[0]));
-    //add_non_bonded_forces(p_pos, p_force, interaction_count, i_particles, i_image, i_params, size);
-    p_force[0][0] = -1.0;
+    add_non_bonded_forces(p_pos, p_force, interaction_count, i_particles, i_image, i_params, size);
     add_bonded_forces(p_pos, p_pos, p_force, water_mol_count, w_mol, 1.0);
 
-    write_traj_timestep(traj_out, t, particle_count, p_type, p_pos, size, size, size);
+    if (t % 10 == 0) {
+      write_traj_timestep(traj_out, t, particle_count, p_type, p_pos, size, size, size);
+      potential = compute_potential(p_pos, interaction_count, i_particles, i_image, i_params, size);
+      fprintf(stats_out, "%d,%lf,%lf\n", t, potential, max_force);
+    }
   }
   fclose(traj_out);
+  fclose(stats_out);
 
   free(p_pos);
   free(p_type);
