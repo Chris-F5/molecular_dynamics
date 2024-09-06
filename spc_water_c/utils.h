@@ -19,3 +19,15 @@ displacement(double out[3], const double dst_pos[3], const double src_pos[3])
   out[1] = dst_pos[1] - src_pos[1];
   out[2] = dst_pos[2] - src_pos[2];
 }
+static inline void
+image_transform(double out[3], const double pos[3], unsigned char image, double size)
+{
+  int ax;
+  for (ax = 0; ax < 3; ax++) {
+    out[ax] = pos[ax];
+    if ( (image >> (ax*2)) & 0b01 )
+      out[ax] += size;
+    if ( (image >> (ax*2)) & 0b10 )
+      out[ax] -= size;
+  }
+}

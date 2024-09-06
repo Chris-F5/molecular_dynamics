@@ -54,6 +54,25 @@ invert_3x3_matrix(double inv[3][3], const double mat[3][3])
 }
 
 static void
+add_spc_restoring_force(const double pos[3][3], const double last_pos[3][3], double force[3][3], double timestep)
+{
+  int i, j, ax;
+  double d[3], target_distance, distance, last_distance, f;
+  for (i = 0; i < 3; i++) for (j = i+1; j < 3; j++) {
+    target_distance = (i == 0) ? 0.1 : 0.16330; /* TODO: move bond length into params. */
+    displacement(d, last_pos[j], pos[i]);
+    last_distance = magnitude(d);
+    displacement(d, pos[j], pos[i]);
+    distance = magnitude(d);
+    f = 1e4 * (distance - target_distance) + 1e4 * (distance - last_distance) / timestep;
+    for (ax = 0; ax < 3; ax++) {
+      force[i][ax] += d[ax] * f / distance;
+      force[j][ax] -= d[ax] * f / distance;
+    }
+  }
+}
+
+static void
 add_spc_constraint(const double pos[3][3], const double last_pos[3][3], double force[3][3], double timestep)
 {
   double vel[3][3], mass;
@@ -143,7 +162,7 @@ void find_pair_list(
         i_params[*interaction_count] = &non_bonded_interactions_params[INTERACTION(p_type[pi], p_type[pj])];
         i_image[*interaction_count] = 0;
         for (ax = 0; ax < 3; ax++) {
-          if (d[ax]*2 < size)
+          if (d[ax]*2 < -size)
             i_image[*interaction_count] |= 0b01 << (ax*2);
           else if (d[ax]*2 > size)
             i_image[*interaction_count] |= 0b10 << (ax*2);
@@ -162,10 +181,12 @@ compute_potential(
     double size)
 {
   int i;
+  double image[3];
   double d[3], r, lj_potential, coulomb_potential, total_potential;
   total_potential = 0;
   for (i = 0; i < interaction_count; i++) {
-    displacement(d, p_pos[i_particles[i][1]], p_pos[i_particles[i][0]]);
+    image_transform(image, p_pos[i_particles[i][1]], i_image[i], size);
+    displacement(d, image, p_pos[i_particles[i][0]]);
     r = magnitude(d);
     lj_potential = 4 * i_params[i]->lennard_jones_epsilon
         * ( pow(i_params[i]->lennard_jones_sigma / r, 12) - pow(i_params[i]->lennard_jones_sigma / r, 6) );
@@ -182,15 +203,16 @@ void add_non_bonded_forces(
     double size)
 {
   int i, ax;
-  double d[3];
+  double image[3], d[3];
   double r, lj_magnitude, coulomb_magnitude;
   for (i = 0; i < interaction_count; i++) {
-    displacement(d, p_pos[i_particles[i][1]], p_pos[i_particles[i][0]]);
+    image_transform(image, p_pos[i_particles[i][1]], i_image[i], size);
+    displacement(d, image, p_pos[i_particles[i][0]]);
     r = magnitude(d);
     lj_magnitude = 24 * i_params[i]->lennard_jones_epsilon
         * ( pow(i_params[i]->lennard_jones_sigma / r, 6) - pow(i_params[i]->lennard_jones_sigma / r, 12) )
         / r;
-    coulomb_magnitude = coulomb_constant * i_params[i]->charge / pow(r, 2);
+    coulomb_magnitude =  -coulomb_constant * i_params[i]->charge / pow(r, 2);
     for (ax = 0; ax < 3; ax++) {
       p_force[i_particles[i][0]][ax] += d[ax] * (lj_magnitude + coulomb_magnitude) / r;
       p_force[i_particles[i][1]][ax] -= d[ax] * (lj_magnitude + coulomb_magnitude) / r;
@@ -214,6 +236,7 @@ void add_bonded_forces(
       force[atom][ax] = p_force[w_mol[m][atom]][ax];
     }
     add_spc_constraint(pos, last_pos, force, timestep);
+    add_spc_restoring_force(pos, last_pos, force, timestep);
     for (atom = 0; atom < 3; atom++) for (ax = 0; ax < 3; ax++)
       p_force[w_mol[m][atom]][ax] = force[atom][ax];
   }
