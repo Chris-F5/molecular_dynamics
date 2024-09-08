@@ -87,7 +87,7 @@ main(int argc, char **argv)
   write_traj_timestep(traj_out, 0, particle_count, p_type, p_pos, size, size, size);
   potential = compute_potential(p_pos, interaction_count, i_particles, i_image, i_params, size);
   fprintf(stats_out, "%d,%lf,%lf,%e\n", 0, potential, max_force, descent_delta);
-  for (t = 0; t < 800 && max_force;) {
+  for (t = 0; t < 100 && max_force;) {
     for (;;) {
       printf("%d\t%e\t%e\n", t, descent_delta, max_force);
       for (p = 0; p < particle_count; p++) for (ax = 0; ax < 3; ax++) {
@@ -96,8 +96,8 @@ main(int argc, char **argv)
       }
       apply_bond_constraints(p_new_pos, water_mol_count, w_mol, 1e-5);
       new_potential = compute_potential(p_new_pos, interaction_count, i_particles, i_image, i_params, size);
-      if (/*new_potential < potential*/ 1) {
-        //descent_delta *= 1.2;
+      if (new_potential < potential) {
+        descent_delta *= 1.2;
         if (descent_delta > descent_delta_max)
           descent_delta = descent_delta_max;
         potential = new_potential;
