@@ -88,7 +88,10 @@ main(int argc, char **argv)
   potential = compute_potential(p_pos, interaction_count, i_particles, i_image, i_params, size);
   fprintf(stats_out, "%d,%lf,%lf,%e\n", 0, potential, max_force, descent_delta);
   printf("icount %d\n", interaction_count);
-  for (t = 0; t < 800 && max_force;) {
+  for (t = 0; t < 400 && max_force;) {
+    /*
+     * Gromacs Reference Manual -> Algorithms -> Energy Minimisation.
+     */
     for (;;) {
       printf("%d\t%e\t%e\n", t, descent_delta, max_force);
       for (p = 0; p < particle_count; p++) for (ax = 0; ax < 3; ax++) {

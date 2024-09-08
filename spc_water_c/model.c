@@ -6,6 +6,12 @@
 #include "model.h"
 #include "utils.h"
 
+/*
+ * Myron W Evans, et al.
+ * Water In Biology, Chemistry And Physics: Experimental Overviews And
+ * Computational Methodologies (1996).
+ * Section 5.8.2 Three-Site Models.
+ */
 const struct particle_params particles_params[] = {
   [PARTICLE_HW] = { 1.0 },
   [PARTICLE_OW] = { 8.0 },
@@ -16,8 +22,16 @@ const struct non_bonded_interaction_params non_bonded_interactions_params[INTERA
   [INTERACTION(PARTICLE_OW, PARTICLE_OW)] = { (-0.820)*(-0.820), 0.316557, 0.650194 },
 };
 const double coulomb_constant = 138.94;
-const double non_bonded_cutoff_distance = 1.0;
+const double non_bonded_cutoff_distance = 2.0;
 
+/*
+ * SHAKE Algorithm.
+ * Jean-Paul Ryckaert, Giovanni Ciccotti, and Herman J. C. Berendsen
+ * Journal of Computational Physics (1997)
+ * Numerical Integration of the Cartesian Equations of Motion of a System with
+ * Constraints: Molecular Dynamics of n-Alkanes.
+ * Section 5.
+ */
 static void
 apply_spc_constraint(double pos[3][3], double tolerence)
 {
@@ -83,6 +97,11 @@ enforce_periodic_boundary_conditions(
   }
 }
 
+/*
+ * H.J.C. Berendsen, D. van der Spoel, R. van Drunen
+ * Computer Physics Communications (1995)
+ * GROMACS: A message-passing parallel molecular dynamics implementation.
+ */
 /* Assume we are given contiguious molecules of 3 atoms. */
 void find_pair_list(
     int particle_count, const double (*p_pos)[3], const int *p_type,
