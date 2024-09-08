@@ -35,6 +35,4 @@ void add_non_bonded_forces(
     int interaction_count, const int (*i_particles)[2], const unsigned char (*i_image),
     const struct non_bonded_interaction_params  *const *i_params,
     double size);
-void add_bonded_forces(
-    const double (*p_pos)[3], const double (*p_last_pos)[3], double (*p_force)[3],
-    int water_mol_count, const int (*w_mol)[3], double timestep);
+void apply_bond_constraints(double (*p_pos)[3], int water_mol_count, const int (*w_mol)[3], double tolerence);

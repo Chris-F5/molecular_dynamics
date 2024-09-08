@@ -67,6 +67,8 @@ main(int argc, char **argv)
   size = gro.dx;
   free_gro_structure(&gro);
 
+  apply_bond_constraints(p_pos, water_mol_count, w_mol, 1e-5);
+
   i_particles = xmalloc(ALLOCATED_INTERACTIONS * sizeof(i_particles[0]));
   i_image = xmalloc(ALLOCATED_INTERACTIONS * sizeof(i_image[0]));
   i_params = xmalloc(ALLOCATED_INTERACTIONS * sizeof(i_params[0]));
@@ -77,7 +79,6 @@ main(int argc, char **argv)
   p_force = xmalloc(particle_count * sizeof(p_force[0]));
   memset(p_force, 0, particle_count * sizeof(p_force[0]));
   add_non_bonded_forces(p_pos, p_force, interaction_count, i_particles, i_image, i_params, size);
-  add_bonded_forces(p_pos, p_pos, p_force, water_mol_count, w_mol, 1.0);
   max_force = find_max_force(particle_count, p_force);
 
   traj_out = fopen("out.traj", "w");
@@ -93,6 +94,7 @@ main(int argc, char **argv)
         mass = particles_params[p_type[p]].mass;
         p_new_pos[p][ax] = p_pos[p][ax] + descent_delta * (p_force[p][ax] / mass) / max_force;
       }
+      apply_bond_constraints(p_new_pos, water_mol_count, w_mol, 1e-5);
       new_potential = compute_potential(p_new_pos, interaction_count, i_particles, i_image, i_params, size);
       if (/*new_potential < potential*/ 1) {
         //descent_delta *= 1.2;
@@ -117,7 +119,6 @@ main(int argc, char **argv)
     }
     memset(p_force, 0, particle_count * sizeof(p_force[0]));
     add_non_bonded_forces(p_pos, p_force, interaction_count, i_particles, i_image, i_params, size);
-    add_bonded_forces(p_pos, p_pos, p_force, water_mol_count, w_mol, 1.0);
     max_force = find_max_force(particle_count, p_force);
 
     if (t % 1 == 0) {
