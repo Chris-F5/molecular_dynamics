@@ -91,24 +91,29 @@ void find_pair_list(
     double size)
 {
   int pi, pj, ax;
+  unsigned char image;
   double d[3];
   *interaction_count = 0;
   for (pi = 0; pi < particle_count; pi++) {
     for (pj = pi-(pi%3)+3; pj < particle_count; pj++) {
       displacement(d, p_pos[pj], p_pos[pi]);
+      image = 0;
+      for (ax = 0; ax < 3; ax++) {
+        if (d[ax]*2 < -size) {
+          d[ax] += size;
+          image |= 0b01 << (ax*2);
+        } else if (d[ax]*2 > size) {
+          d[ax] -= size;
+          image |= 0b10 << (ax*2);
+        }
+      }
       if (magnitude(d) < non_bonded_cutoff_distance) {
         if (*interaction_count >= interaction_allocated)
           exit(1);
         i_particles[*interaction_count][0] = pi;
         i_particles[*interaction_count][1] = pj;
         i_params[*interaction_count] = &non_bonded_interactions_params[INTERACTION(p_type[pi], p_type[pj])];
-        i_image[*interaction_count] = 0;
-        for (ax = 0; ax < 3; ax++) {
-          if (d[ax]*2 < -size)
-            i_image[*interaction_count] |= 0b01 << (ax*2);
-          else if (d[ax]*2 > size)
-            i_image[*interaction_count] |= 0b10 << (ax*2);
-        }
+        i_image[*interaction_count] = image;
         (*interaction_count)++;
       }
     }
